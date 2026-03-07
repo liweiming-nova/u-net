@@ -1,0 +1,38 @@
+﻿project_name: retina-vessel-seg
+seed: 42
+device: cuda
+
+data:
+  train_image_dir: data/train/images
+  train_mask_dir: data/train/masks
+  val_image_dir: data/val/images
+  val_mask_dir: data/val/masks
+  test_image_dir: data/test/images
+  image_size: 512
+  num_workers: 4
+
+model:
+  name: unet  # unet | attention_unet
+  in_channels: 3
+  out_channels: 1
+  base_channels: 32
+
+train:
+  batch_size: 4
+  epochs: 80
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  grad_clip: 1.0
+  scheduler: cosine
+  save_dir: experiments
+
+loss:
+  dice_weight: 0.6
+  focal_weight: 0.4
+  focal_gamma: 2.0
+
+infer:
+  ckpt_path: experiments/best.pt
+  threshold: 0.5
+  output_dir: experiments/preds
