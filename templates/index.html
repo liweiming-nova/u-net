@@ -1,0 +1,44 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>U-Net 眼底血管分割演示</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <main class="container">
+    <h1>U-Net 眼底血管分割演示</h1>
+    <p class="desc">上传一张眼底图像，系统将输出血管分割掩膜与可视化叠加结果。</p>
+
+    <form class="upload-form" action="/predict" method="post" enctype="multipart/form-data">
+      <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" required />
+      <button type="submit">开始推理</button>
+    </form>
+
+    {% if error %}
+      <div class="msg error">{{ error }}</div>
+    {% endif %}
+    {% if success %}
+      <div class="msg success">{{ success }}</div>
+    {% endif %}
+
+    {% if raw_url and mask_url and overlay_url %}
+      <section class="grid">
+        <article>
+          <h2>原始图像</h2>
+          <img src="{{ raw_url }}" alt="raw" />
+        </article>
+        <article>
+          <h2>分割掩膜</h2>
+          <img src="{{ mask_url }}" alt="mask" />
+        </article>
+        <article>
+          <h2>叠加结果</h2>
+          <img src="{{ overlay_url }}" alt="overlay" />
+        </article>
+      </section>
+    {% endif %}
+  </main>
+</body>
+</html>

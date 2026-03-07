@@ -140,3 +140,29 @@ python main.py --mode train --config configs/base.yaml
 1) 加入 `albumentations` 强化数据增强；
 2) 加入 AUC、SE、SP、F1 指标；
 3) 加入早停 + TensorBoard + 最佳阈值搜索。
+
+## 9. Flask 演示系统
+
+用于最终模型展示（模板引擎 Jinja2）：
+
+1) 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+2) 确保存在训练好的权重（默认读取 `experiments/best.pt`）
+
+3) 启动 Web
+
+```bash
+python webapp.py
+```
+
+4) 浏览器访问
+
+```text
+http://127.0.0.1:5000
+```
+
+页面支持上传眼底图并显示：原图、二值掩膜、叠加可视化。
