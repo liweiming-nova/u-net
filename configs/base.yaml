@@ -10,9 +10,30 @@ data:
   test_image_dir: data/test/images
   image_size: 512
   num_workers: 4
+  preprocess:
+    use_grayscale: false
+    apply_clahe: true
+    clahe_clip_limit: 2.0
+    clahe_tile_grid_size: 8
+  augment:
+    enabled: true
+    hflip_p: 0.5
+    vflip_p: 0.5
+    rotate_limit: 30
+    rotate_p: 0.5
+    scale_limit: 0.2
+    scale_p: 0.5
+    elastic_alpha: 20.0
+    elastic_sigma: 6.0
+    elastic_p: 0.2
+    brightness_limit: 0.2
+    contrast_limit: 0.2
+    brightness_contrast_p: 0.3
+    gauss_var_limit: [10.0, 50.0]
+    gauss_p: 0.2
 
 model:
-  name: unet  # unet | attention_unet
+  name: attention_aspp_unet  # unet | attention_unet | residual_unet | attention_aspp_unet
   in_channels: 3
   out_channels: 1
   base_channels: 32
@@ -36,3 +57,9 @@ infer:
   ckpt_path: experiments/best.pt
   threshold: 0.5
   output_dir: experiments/preds
+
+prepare_data:
+  source_format: drive
+  drive_root: data/DRIVE
+  output_root: data
+  val_ratio_within_training: 0.2

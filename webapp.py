@@ -1,5 +1,4 @@
-﻿import os
-import uuid
+﻿import uuid
 from pathlib import Path
 
 import cv2
@@ -8,6 +7,8 @@ import torch
 from flask import Flask, render_template, request
 from werkzeug.utils import secure_filename
 
+from src.datasets import preprocess_image
+from src.history_manager import HistoryManager, build_history_record
 from src.models import build_model
 from src.utils import ensure_dir, load_yaml
 
@@ -15,11 +16,16 @@ from src.utils import ensure_dir, load_yaml
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "configs" / "base.yaml"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "tif", "tiff"}
+HISTORY_ROOT = BASE_DIR / "local_history"
+HISTORY_FILE = HISTORY_ROOT / "history.json"
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024
 app.config["RESULT_DIR"] = BASE_DIR / "static" / "results"
 ensure_dir(str(app.config["RESULT_DIR"]))
+ensure_dir(str(HISTORY_ROOT))
+
+history_manager = HistoryManager(HISTORY_FILE)
 
 _model = None
 _cfg = None
@@ -55,15 +61,53 @@ def _load_infer_runtime():
     return _model, _cfg, _device
 
 
+def _result_names(source_name: str):
+    stem = secure_filename(Path(source_name).stem) or "retina"
+    tag = uuid.uuid4().hex[:8]
+    return (
+        f"{stem}_{tag}_raw.png",
+        f"{stem}_{tag}_mask.png",
+        f"{stem}_{tag}_overlay.png",
+    )
+
+
+def _save_result(image_bgr: np.ndarray, mask: np.ndarray, overlay: np.ndarray, source_name: str):
+    raw_name, mask_name, overlay_name = _result_names(source_name)
+    raw_path = app.config["RESULT_DIR"] / raw_name
+    mask_path = app.config["RESULT_DIR"] / mask_name
+    overlay_path = app.config["RESULT_DIR"] / overlay_name
+
+    cv2.imwrite(str(raw_path), image_bgr)
+    cv2.imwrite(str(mask_path), mask)
+    cv2.imwrite(str(overlay_path), overlay)
+
+    record = build_history_record(
+        item_id=uuid.uuid4().hex,
+        source_name=source_name,
+        raw_url=f"/static/results/{raw_name}",
+        mask_url=f"/static/results/{mask_name}",
+        overlay_url=f"/static/results/{overlay_name}",
+    )
+    history_manager.append_record(record)
+    return record
+
+
 def _run_segmentation(image_bgr: np.ndarray):
     model, cfg, device = _load_infer_runtime()
 
-    img_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    h, w = img_rgb.shape[:2]
+    h, w = image_bgr.shape[:2]
     size = int(cfg["data"]["image_size"])
     threshold = float(cfg["infer"].get("threshold", 0.5))
+    preprocess_cfg = cfg["data"].get("preprocess", {})
 
-    x = cv2.resize(img_rgb, (size, size), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+    x = preprocess_image(
+        image_bgr,
+        image_size=size,
+        use_grayscale=bool(preprocess_cfg.get("use_grayscale", False)),
+        apply_clahe=bool(preprocess_cfg.get("apply_clahe", False)),
+        clahe_clip_limit=float(preprocess_cfg.get("clahe_clip_limit", 2.0)),
+        clahe_tile_grid_size=int(preprocess_cfg.get("clahe_tile_grid_size", 8)),
+    )
     x = torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -83,50 +127,99 @@ def _run_segmentation(image_bgr: np.ndarray):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html")
+    return render_template("index.html", history=history_manager.list_records())
 
 
 @app.route("/predict", methods=["POST"])
 def predict():
     file = request.files.get("image")
     if file is None or file.filename == "":
-        return render_template("index.html", error="请先选择一张眼底图像。")
+        return render_template("index.html", error="Please choose one image.", history=history_manager.list_records())
 
     if not _allowed_file(file.filename):
-        return render_template("index.html", error="仅支持 png/jpg/jpeg/bmp/tif/tiff 格式。")
+        return render_template(
+            "index.html",
+            error="Only png/jpg/jpeg/bmp/tif/tiff files are supported.",
+            history=history_manager.list_records(),
+        )
 
     file_bytes = np.frombuffer(file.read(), np.uint8)
     image_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     if image_bgr is None:
-        return render_template("index.html", error="图像读取失败，请更换文件后重试。")
+        return render_template("index.html", error="Failed to read the image.", history=history_manager.list_records())
 
     try:
         mask, overlay = _run_segmentation(image_bgr)
+        record = _save_result(image_bgr, mask, overlay, file.filename)
     except FileNotFoundError as e:
-        return render_template("index.html", error=str(e))
+        return render_template("index.html", error=str(e), history=history_manager.list_records())
     except Exception as e:
-        return render_template("index.html", error=f"推理失败: {e}")
-
-    stem = secure_filename(Path(file.filename).stem) or "retina"
-    tag = uuid.uuid4().hex[:8]
-    raw_name = f"{stem}_{tag}_raw.png"
-    mask_name = f"{stem}_{tag}_mask.png"
-    overlay_name = f"{stem}_{tag}_overlay.png"
-
-    raw_path = app.config["RESULT_DIR"] / raw_name
-    mask_path = app.config["RESULT_DIR"] / mask_name
-    overlay_path = app.config["RESULT_DIR"] / overlay_name
-
-    cv2.imwrite(str(raw_path), image_bgr)
-    cv2.imwrite(str(mask_path), mask)
-    cv2.imwrite(str(overlay_path), overlay)
+        return render_template("index.html", error=f"Inference failed: {e}", history=history_manager.list_records())
 
     return render_template(
         "index.html",
-        raw_url=f"/static/results/{raw_name}",
-        mask_url=f"/static/results/{mask_name}",
-        overlay_url=f"/static/results/{overlay_name}",
-        success="推理完成。",
+        raw_url=record["raw_url"],
+        mask_url=record["mask_url"],
+        overlay_url=record["overlay_url"],
+        success="Inference finished.",
+        history=history_manager.list_records(),
+    )
+
+
+@app.route("/predict-batch", methods=["POST"])
+def predict_batch():
+    files = [f for f in request.files.getlist("images") if f and f.filename]
+    if not files:
+        return render_template("index.html", error="Please choose at least one image.", history=history_manager.list_records())
+
+    batch_results = []
+    try:
+        for file in files:
+            if not _allowed_file(file.filename):
+                raise ValueError(f"Unsupported file format: {file.filename}")
+            file_bytes = np.frombuffer(file.read(), np.uint8)
+            image_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            if image_bgr is None:
+                raise ValueError(f"Failed to read image: {file.filename}")
+            mask, overlay = _run_segmentation(image_bgr)
+            batch_results.append(_save_result(image_bgr, mask, overlay, file.filename))
+    except FileNotFoundError as e:
+        return render_template("index.html", error=str(e), history=history_manager.list_records())
+    except Exception as e:
+        return render_template("index.html", error=f"Batch inference failed: {e}", history=history_manager.list_records())
+
+    return render_template(
+        "index.html",
+        success=f"Batch inference finished for {len(batch_results)} images.",
+        batch_results=batch_results,
+        history=history_manager.list_records(),
+    )
+
+
+@app.route("/load-json", methods=["POST"])
+def load_json():
+    file = request.files.get("history_json")
+    if file is None or file.filename == "":
+        return render_template("index.html", error="Please choose one history JSON file.", history=history_manager.list_records())
+
+    if not file.filename.lower().endswith(".json"):
+        return render_template("index.html", error="Only .json files are supported.", history=history_manager.list_records())
+
+    temp_name = f"import_{uuid.uuid4().hex}.json"
+    temp_path = HISTORY_ROOT / temp_name
+    file.save(str(temp_path))
+
+    try:
+        added = history_manager.load_json(temp_path)
+    except Exception as e:
+        temp_path.unlink(missing_ok=True)
+        return render_template("index.html", error=f"JSON import failed: {e}", history=history_manager.list_records())
+
+    temp_path.unlink(missing_ok=True)
+    return render_template(
+        "index.html",
+        success=f"JSON import succeeded. Added {added} records.",
+        history=history_manager.list_records(),
     )
 
 

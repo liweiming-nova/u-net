@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import json
 import os
 from typing import Dict
@@ -9,10 +9,13 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.datasets import RetinaVesselDataset
+from src.datasets import RetinaVesselDataset, build_train_augment
 from src.losses import CombinedLoss
 from src.models import build_model
-from src.utils import binarize_logits, dice_score, ensure_dir, iou_score, set_seed
+from src.utils import ensure_dir, segmentation_metrics, set_seed
+
+
+cfg_train_grad_clip = None
 
 
 def _build_device(cfg: Dict) -> torch.device:
@@ -27,8 +30,7 @@ def _run_one_epoch(model, loader, criterion, optimizer, device, amp, scaler, thr
     model.train() if is_train else model.eval()
 
     total_loss = 0.0
-    total_dice = 0.0
-    total_iou = 0.0
+    totals = {"dice": 0.0, "iou": 0.0, "acc": 0.0, "sen": 0.0, "spe": 0.0, "auc": 0.0}
 
     iterator = tqdm(loader, leave=False)
     for images, masks, _ in iterator:
@@ -51,17 +53,16 @@ def _run_one_epoch(model, loader, criterion, optimizer, device, amp, scaler, thr
                 scaler.step(optimizer)
                 scaler.update()
 
-        preds = binarize_logits(logits, threshold=threshold)
+        metrics = segmentation_metrics(logits, masks, threshold=threshold)
         total_loss += float(loss.item())
-        total_dice += dice_score(preds, masks)
-        total_iou += iou_score(preds, masks)
+        for key, value in metrics.items():
+            totals[key] += value
 
     n = len(loader)
-    return {
-        "loss": total_loss / max(n, 1),
-        "dice": total_dice / max(n, 1),
-        "iou": total_iou / max(n, 1),
-    }
+    result = {"loss": total_loss / max(n, 1)}
+    for key, value in totals.items():
+        result[key] = value / max(n, 1)
+    return result
 
 
 def train(cfg: Dict) -> None:
@@ -71,6 +72,10 @@ def train(cfg: Dict) -> None:
     device = _build_device(cfg)
     ensure_dir(cfg["train"]["save_dir"])
 
+    data_cfg = cfg["data"]
+    preprocess_cfg = data_cfg.get("preprocess", {})
+    train_aug = build_train_augment(data_cfg.get("augment"))
+
     model = build_model(
         cfg["model"]["name"],
         cfg["model"]["in_channels"],
@@ -78,29 +83,38 @@ def train(cfg: Dict) -> None:
         cfg["model"]["base_channels"],
     ).to(device)
 
+    dataset_kwargs = {
+        "image_size": data_cfg["image_size"],
+        "use_grayscale": bool(preprocess_cfg.get("use_grayscale", False)),
+        "apply_clahe": bool(preprocess_cfg.get("apply_clahe", False)),
+        "clahe_clip_limit": float(preprocess_cfg.get("clahe_clip_limit", 2.0)),
+        "clahe_tile_grid_size": int(preprocess_cfg.get("clahe_tile_grid_size", 8)),
+    }
+
     train_ds = RetinaVesselDataset(
-        cfg["data"]["train_image_dir"],
-        cfg["data"]["train_mask_dir"],
-        image_size=cfg["data"]["image_size"],
+        data_cfg["train_image_dir"],
+        data_cfg["train_mask_dir"],
+        augment=train_aug,
+        **dataset_kwargs,
     )
     val_ds = RetinaVesselDataset(
-        cfg["data"]["val_image_dir"],
-        cfg["data"]["val_mask_dir"],
-        image_size=cfg["data"]["image_size"],
+        data_cfg["val_image_dir"],
+        data_cfg["val_mask_dir"],
+        **dataset_kwargs,
     )
 
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg["train"]["batch_size"],
         shuffle=True,
-        num_workers=cfg["data"]["num_workers"],
+        num_workers=data_cfg["num_workers"],
         pin_memory=True,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg["train"]["batch_size"],
         shuffle=False,
-        num_workers=cfg["data"]["num_workers"],
+        num_workers=data_cfg["num_workers"],
         pin_memory=True,
     )
 
@@ -117,13 +131,14 @@ def train(cfg: Dict) -> None:
     amp = bool(cfg["train"].get("amp", True)) and device.type == "cuda"
     scaler = GradScaler(enabled=amp)
     cfg_train_grad_clip = cfg["train"].get("grad_clip", None)
+    threshold = float(cfg.get("infer", {}).get("threshold", 0.5))
 
     best_dice = -1.0
     logs = []
 
     for epoch in range(1, cfg["train"]["epochs"] + 1):
-        tr = _run_one_epoch(model, train_loader, criterion, optimizer, device, amp, scaler)
-        va = _run_one_epoch(model, val_loader, criterion, None, device, amp, scaler)
+        tr = _run_one_epoch(model, train_loader, criterion, optimizer, device, amp, scaler, threshold=threshold)
+        va = _run_one_epoch(model, val_loader, criterion, None, device, amp, scaler, threshold=threshold)
 
         if scheduler is not None:
             scheduler.step()
@@ -133,9 +148,17 @@ def train(cfg: Dict) -> None:
             "train_loss": tr["loss"],
             "train_dice": tr["dice"],
             "train_iou": tr["iou"],
+            "train_acc": tr["acc"],
+            "train_sen": tr["sen"],
+            "train_spe": tr["spe"],
+            "train_auc": tr["auc"],
             "val_loss": va["loss"],
             "val_dice": va["dice"],
             "val_iou": va["iou"],
+            "val_acc": va["acc"],
+            "val_sen": va["sen"],
+            "val_spe": va["spe"],
+            "val_auc": va["auc"],
         }
         logs.append(row)
         print(row)

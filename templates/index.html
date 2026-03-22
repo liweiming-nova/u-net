@@ -1,20 +1,39 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>U-Net 眼底血管分割演示</title>
+  <title>Retinal Vessel Segmentation Demo</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
   <main class="container">
-    <h1>U-Net 眼底血管分割演示</h1>
-    <p class="desc">上传一张眼底图像，系统将输出血管分割掩膜与可视化叠加结果。</p>
+    <h1>Retinal Vessel Segmentation Demo</h1>
+    <p class="desc">Upload one or more fundus images to generate binary vessel masks and overlay visualizations. Results are saved into local history JSON automatically.</p>
 
-    <form class="upload-form" action="/predict" method="post" enctype="multipart/form-data">
-      <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" required />
-      <button type="submit">开始推理</button>
-    </form>
+    <section class="panel">
+      <h2>Single Image</h2>
+      <form class="upload-form" action="/predict" method="post" enctype="multipart/form-data">
+        <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" required />
+        <button type="submit">Run Inference</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Batch Inference</h2>
+      <form class="upload-form" action="/predict-batch" method="post" enctype="multipart/form-data">
+        <input type="file" name="images" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" multiple required />
+        <button type="submit">Process Batch</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Import History JSON</h2>
+      <form class="upload-form" action="/load-json" method="post" enctype="multipart/form-data">
+        <input type="file" name="history_json" accept=".json" required />
+        <button type="submit">Load JSON</button>
+      </form>
+    </section>
 
     {% if error %}
       <div class="msg error">{{ error }}</div>
@@ -26,19 +45,62 @@
     {% if raw_url and mask_url and overlay_url %}
       <section class="grid">
         <article>
-          <h2>原始图像</h2>
+          <h3>Raw Image</h3>
           <img src="{{ raw_url }}" alt="raw" />
         </article>
         <article>
-          <h2>分割掩膜</h2>
+          <h3>Predicted Mask</h3>
           <img src="{{ mask_url }}" alt="mask" />
         </article>
         <article>
-          <h2>叠加结果</h2>
+          <h3>Overlay</h3>
           <img src="{{ overlay_url }}" alt="overlay" />
         </article>
       </section>
     {% endif %}
+
+    {% if batch_results and batch_results|length > 0 %}
+      <section class="panel">
+        <h2>Batch Results</h2>
+        <div class="history-grid">
+          {% for item in batch_results %}
+            <article class="history-card">
+              <div class="history-head">
+                <strong>{{ item.source_name or 'unknown' }}</strong>
+              </div>
+              <div class="history-images">
+                <img src="{{ item.raw_url }}" alt="batch-raw" />
+                <img src="{{ item.mask_url }}" alt="batch-mask" />
+                <img src="{{ item.overlay_url }}" alt="batch-overlay" />
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <section class="panel history-panel">
+      <h2>History</h2>
+      {% if history and history|length > 0 %}
+        <div class="history-grid">
+          {% for item in history %}
+            <article class="history-card">
+              <div class="history-head">
+                <strong>{{ item.source_name or 'unknown' }}</strong>
+                <small>{{ item.timestamp or '' }}</small>
+              </div>
+              <div class="history-images">
+                <img src="{{ item.raw_url }}" alt="history-raw" />
+                <img src="{{ item.mask_url }}" alt="history-mask" />
+                <img src="{{ item.overlay_url }}" alt="history-overlay" />
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No history records yet.</p>
+      {% endif %}
+    </section>
   </main>
 </body>
 </html>

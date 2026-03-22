@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import os
 
 import torch
@@ -25,10 +25,15 @@ def predict(config_path: str) -> None:
     model.load_state_dict(ckpt["model"])
     model.eval()
 
+    preprocess_cfg = cfg["data"].get("preprocess", {})
     ds = RetinaVesselDataset(
         cfg["data"]["test_image_dir"],
         mask_dir=None,
         image_size=cfg["data"]["image_size"],
+        use_grayscale=bool(preprocess_cfg.get("use_grayscale", False)),
+        apply_clahe=bool(preprocess_cfg.get("apply_clahe", False)),
+        clahe_clip_limit=float(preprocess_cfg.get("clahe_clip_limit", 2.0)),
+        clahe_tile_grid_size=int(preprocess_cfg.get("clahe_tile_grid_size", 8)),
     )
     loader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=cfg["data"]["num_workers"])
 
