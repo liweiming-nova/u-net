@@ -46,7 +46,7 @@ def _load_infer_runtime():
 
     ckpt_path = BASE_DIR / _cfg["infer"]["ckpt_path"]
     if not ckpt_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+        raise FileNotFoundError(f"未找到模型权重文件：{ckpt_path}")
 
     ckpt = torch.load(str(ckpt_path), map_location=_device)
     _model = build_model(
@@ -134,19 +134,19 @@ def index():
 def predict():
     file = request.files.get("image")
     if file is None or file.filename == "":
-        return render_template("index.html", error="Please choose one image.", history=history_manager.list_records())
+        return render_template("index.html", error="请先选择一张眼底图像。", history=history_manager.list_records())
 
     if not _allowed_file(file.filename):
         return render_template(
             "index.html",
-            error="Only png/jpg/jpeg/bmp/tif/tiff files are supported.",
+            error="仅支持 png、jpg、jpeg、bmp、tif、tiff 格式图像。",
             history=history_manager.list_records(),
         )
 
     file_bytes = np.frombuffer(file.read(), np.uint8)
     image_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     if image_bgr is None:
-        return render_template("index.html", error="Failed to read the image.", history=history_manager.list_records())
+        return render_template("index.html", error="图像读取失败，请更换文件后重试。", history=history_manager.list_records())
 
     try:
         mask, overlay = _run_segmentation(image_bgr)
@@ -154,14 +154,14 @@ def predict():
     except FileNotFoundError as e:
         return render_template("index.html", error=str(e), history=history_manager.list_records())
     except Exception as e:
-        return render_template("index.html", error=f"Inference failed: {e}", history=history_manager.list_records())
+        return render_template("index.html", error=f"图像分割失败：{e}", history=history_manager.list_records())
 
     return render_template(
         "index.html",
         raw_url=record["raw_url"],
         mask_url=record["mask_url"],
         overlay_url=record["overlay_url"],
-        success="Inference finished.",
+        success="单张图像分割完成。",
         history=history_manager.list_records(),
     )
 
@@ -170,27 +170,27 @@ def predict():
 def predict_batch():
     files = [f for f in request.files.getlist("images") if f and f.filename]
     if not files:
-        return render_template("index.html", error="Please choose at least one image.", history=history_manager.list_records())
+        return render_template("index.html", error="请至少选择一张图像。", history=history_manager.list_records())
 
     batch_results = []
     try:
         for file in files:
             if not _allowed_file(file.filename):
-                raise ValueError(f"Unsupported file format: {file.filename}")
+                raise ValueError(f"不支持的文件格式：{file.filename}")
             file_bytes = np.frombuffer(file.read(), np.uint8)
             image_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             if image_bgr is None:
-                raise ValueError(f"Failed to read image: {file.filename}")
+                raise ValueError(f"图像读取失败：{file.filename}")
             mask, overlay = _run_segmentation(image_bgr)
             batch_results.append(_save_result(image_bgr, mask, overlay, file.filename))
     except FileNotFoundError as e:
         return render_template("index.html", error=str(e), history=history_manager.list_records())
     except Exception as e:
-        return render_template("index.html", error=f"Batch inference failed: {e}", history=history_manager.list_records())
+        return render_template("index.html", error=f"批量图像分割失败：{e}", history=history_manager.list_records())
 
     return render_template(
         "index.html",
-        success=f"Batch inference finished for {len(batch_results)} images.",
+        success=f"批量图像分割完成，共处理 {len(batch_results)} 张图像。",
         batch_results=batch_results,
         history=history_manager.list_records(),
     )
@@ -200,10 +200,10 @@ def predict_batch():
 def load_json():
     file = request.files.get("history_json")
     if file is None or file.filename == "":
-        return render_template("index.html", error="Please choose one history JSON file.", history=history_manager.list_records())
+        return render_template("index.html", error="请先选择历史记录 JSON 文件。", history=history_manager.list_records())
 
     if not file.filename.lower().endswith(".json"):
-        return render_template("index.html", error="Only .json files are supported.", history=history_manager.list_records())
+        return render_template("index.html", error="仅支持 .json 文件。", history=history_manager.list_records())
 
     temp_name = f"import_{uuid.uuid4().hex}.json"
     temp_path = HISTORY_ROOT / temp_name
@@ -213,15 +213,16 @@ def load_json():
         added = history_manager.load_json(temp_path)
     except Exception as e:
         temp_path.unlink(missing_ok=True)
-        return render_template("index.html", error=f"JSON import failed: {e}", history=history_manager.list_records())
+        return render_template("index.html", error=f"JSON 导入失败：{e}", history=history_manager.list_records())
 
     temp_path.unlink(missing_ok=True)
     return render_template(
         "index.html",
-        success=f"JSON import succeeded. Added {added} records.",
+        success=f"历史记录导入成功，新增 {added} 条记录。",
         history=history_manager.list_records(),
     )
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+

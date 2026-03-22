@@ -1,106 +1,147 @@
 ﻿<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Retinal Vessel Segmentation Demo</title>
+  <title>视网膜血管分割学术演示系统</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
-  <main class="container">
-    <h1>Retinal Vessel Segmentation Demo</h1>
-    <p class="desc">Upload one or more fundus images to generate binary vessel masks and overlay visualizations. Results are saved into local history JSON automatically.</p>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-badge">Academic Demo Platform</div>
+      <h1>视网膜血管分割学术演示系统</h1>
+      
+    </header>
 
-    <section class="panel">
-      <h2>Single Image</h2>
-      <form class="upload-form" action="/predict" method="post" enctype="multipart/form-data">
-        <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" required />
-        <button type="submit">Run Inference</button>
-      </form>
-    </section>
-
-    <section class="panel">
-      <h2>Batch Inference</h2>
-      <form class="upload-form" action="/predict-batch" method="post" enctype="multipart/form-data">
-        <input type="file" name="images" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" multiple required />
-        <button type="submit">Process Batch</button>
-      </form>
-    </section>
-
-    <section class="panel">
-      <h2>Import History JSON</h2>
-      <form class="upload-form" action="/load-json" method="post" enctype="multipart/form-data">
-        <input type="file" name="history_json" accept=".json" required />
-        <button type="submit">Load JSON</button>
-      </form>
-    </section>
-
-    {% if error %}
-      <div class="msg error">{{ error }}</div>
-    {% endif %}
-    {% if success %}
-      <div class="msg success">{{ success }}</div>
-    {% endif %}
-
-    {% if raw_url and mask_url and overlay_url %}
-      <section class="grid">
-        <article>
-          <h3>Raw Image</h3>
-          <img src="{{ raw_url }}" alt="raw" />
-        </article>
-        <article>
-          <h3>Predicted Mask</h3>
-          <img src="{{ mask_url }}" alt="mask" />
-        </article>
-        <article>
-          <h3>Overlay</h3>
-          <img src="{{ overlay_url }}" alt="overlay" />
-        </article>
-      </section>
-    {% endif %}
-
-    {% if batch_results and batch_results|length > 0 %}
-      <section class="panel">
-        <h2>Batch Results</h2>
-        <div class="history-grid">
-          {% for item in batch_results %}
-            <article class="history-card">
-              <div class="history-head">
-                <strong>{{ item.source_name or 'unknown' }}</strong>
-              </div>
-              <div class="history-images">
-                <img src="{{ item.raw_url }}" alt="batch-raw" />
-                <img src="{{ item.mask_url }}" alt="batch-mask" />
-                <img src="{{ item.overlay_url }}" alt="batch-overlay" />
-              </div>
-            </article>
-          {% endfor %}
+    <main class="container">
+      <section class="panel control-panel">
+        <div class="section-title">
+          <span class="section-index">01</span>
+          <div>
+            <h2>单张图像分割</h2>
+          </div>
         </div>
+        <form class="upload-form" action="/predict" method="post" enctype="multipart/form-data">
+          <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" required />
+          <button type="submit">开始分割</button>
+        </form>
       </section>
-    {% endif %}
 
-    <section class="panel history-panel">
-      <h2>History</h2>
-      {% if history and history|length > 0 %}
-        <div class="history-grid">
-          {% for item in history %}
-            <article class="history-card">
-              <div class="history-head">
-                <strong>{{ item.source_name or 'unknown' }}</strong>
-                <small>{{ item.timestamp or '' }}</small>
-              </div>
-              <div class="history-images">
-                <img src="{{ item.raw_url }}" alt="history-raw" />
-                <img src="{{ item.mask_url }}" alt="history-mask" />
-                <img src="{{ item.overlay_url }}" alt="history-overlay" />
-              </div>
-            </article>
-          {% endfor %}
+      <section class="panel control-panel">
+        <div class="section-title">
+          <span class="section-index">02</span>
+          <div>
+            <h2>批量图像分割</h2>
+          </div>
         </div>
-      {% else %}
-        <p class="muted">No history records yet.</p>
+        <form class="upload-form" action="/predict-batch" method="post" enctype="multipart/form-data">
+          <input type="file" name="images" accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" multiple required />
+          <button type="submit">批量分割</button>
+        </form>
+      </section>
+
+      <section class="panel control-panel">
+        <div class="section-title">
+          <span class="section-index">03</span>
+          <div>
+            <h2>导入历史记录</h2>
+          </div>
+        </div>
+        <form class="upload-form" action="/load-json" method="post" enctype="multipart/form-data">
+          <input type="file" name="history_json" accept=".json" required />
+          <button type="submit">导入记录</button>
+        </form>
+      </section>
+
+      {% if error %}
+        <div class="msg error">{{ error }}</div>
       {% endif %}
-    </section>
-  </main>
+      {% if success %}
+        <div class="msg success">{{ success }}</div>
+      {% endif %}
+
+      {% if raw_url and mask_url and overlay_url %}
+        <section class="panel">
+          <div class="section-title">
+            <span class="section-index">04</span>
+            <div>
+              <h2>单张分割结果</h2>
+              <p>展示原始图像、预测掩膜和叠加可视化结果。</p>
+            </div>
+          </div>
+          <section class="grid result-grid">
+            <article class="result-card">
+              <div class="card-heading">原始图像</div>
+              <img src="{{ raw_url }}" alt="原始图像" />
+            </article>
+            <article class="result-card">
+              <div class="card-heading">预测掩膜</div>
+              <img src="{{ mask_url }}" alt="预测掩膜" />
+            </article>
+            <article class="result-card">
+              <div class="card-heading">叠加结果</div>
+              <img src="{{ overlay_url }}" alt="叠加结果" />
+            </article>
+          </section>
+        </section>
+      {% endif %}
+
+      {% if batch_results and batch_results|length > 0 %}
+        <section class="panel">
+          <div class="section-title">
+            <span class="section-index">05</span>
+            <div>
+              <h2>批量分割结果</h2>
+              <p>当前批次样本的分割结果已完成生成，可用于集中展示与比对。</p>
+            </div>
+          </div>
+          <div class="history-grid">
+            {% for item in batch_results %}
+              <article class="history-card">
+                <div class="history-head">
+                  <strong>{{ item.source_name or '未命名图像' }}</strong>
+                </div>
+                <div class="history-images">
+                  <img src="{{ item.raw_url }}" alt="批量原图" />
+                  <img src="{{ item.mask_url }}" alt="批量掩膜" />
+                  <img src="{{ item.overlay_url }}" alt="批量叠加" />
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      <section class="panel history-panel">
+        <div class="section-title">
+          <span class="section-index">06</span>
+          <div>
+            <h2>历史记录</h2>
+          </div>
+        </div>
+        {% if history and history|length > 0 %}
+          <div class="history-grid">
+            {% for item in history %}
+              <article class="history-card">
+                <div class="history-head">
+                  <strong>{{ item.source_name or '未命名图像' }}</strong>
+                  <small>{{ item.timestamp or '' }}</small>
+                </div>
+                <div class="history-images">
+                  <img src="{{ item.raw_url }}" alt="历史原图" />
+                  <img src="{{ item.mask_url }}" alt="历史掩膜" />
+                  <img src="{{ item.overlay_url }}" alt="历史叠加" />
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">当前暂无历史记录，完成一次分割后将自动写入本地记录。</p>
+        {% endif %}
+      </section>
+    </main>
+  </div>
 </body>
 </html>
+
