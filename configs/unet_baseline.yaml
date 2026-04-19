@@ -1,0 +1,71 @@
+project_name: retina-vessel-seg-baseline
+seed: 42
+device: cuda
+
+data:
+  train_image_dir: data/train/images
+  train_mask_dir: data/train/masks
+  val_image_dir: data/val/images
+  val_mask_dir: data/val/masks
+  test_image_dir: data/test/images
+  image_size: 512
+  num_workers: 4
+  preprocess:
+    use_grayscale: false
+    apply_clahe: true
+    clahe_clip_limit: 2.0
+    clahe_tile_grid_size: 8
+  patch:
+    enabled: false
+    patch_size: 256
+    stride: 128
+    min_foreground_ratio: 0.01
+    apply_to_val: false
+  augment:
+    enabled: true
+    hflip_p: 0.5
+    vflip_p: 0.5
+    rotate_limit: 30
+    rotate_p: 0.5
+    scale_limit: 0.2
+    scale_p: 0.5
+    elastic_alpha: 20.0
+    elastic_sigma: 6.0
+    elastic_p: 0.2
+    brightness_limit: 0.2
+    contrast_limit: 0.2
+    brightness_contrast_p: 0.3
+    gauss_var_limit: [10.0, 50.0]
+    gauss_p: 0.2
+
+model:
+  name: unet
+  in_channels: 3
+  out_channels: 1
+  base_channels: 32
+
+train:
+  batch_size: 4
+  epochs: 80
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  grad_clip: 1.0
+  scheduler: cosine
+  save_dir: experiments_unet_baseline
+
+loss:
+  dice_weight: 0.6
+  focal_weight: 0.4
+  focal_gamma: 2.0
+
+infer:
+  ckpt_path: experiments_unet_baseline/best.pt
+  threshold: 0.5
+  output_dir: experiments_unet_baseline/preds
+
+prepare_data:
+  source_format: drive
+  drive_root: data/DRIVE
+  output_root: data
+  val_ratio_within_training: 0.2

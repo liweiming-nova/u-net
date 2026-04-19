@@ -14,6 +14,7 @@ from src.utils import ensure_dir, load_yaml
 
 
 BASE_DIR = Path(__file__).resolve().parent
+RUN_DIR = Path.cwd()
 CONFIG_PATH = BASE_DIR / "configs" / "base.yaml"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "tif", "tiff"}
 HISTORY_ROOT = BASE_DIR / "local_history"
@@ -21,7 +22,7 @@ HISTORY_FILE = HISTORY_ROOT / "history.json"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024
-app.config["RESULT_DIR"] = BASE_DIR / "static" / "results"
+app.config["RESULT_DIR"] = RUN_DIR / "static" / "results"
 ensure_dir(str(app.config["RESULT_DIR"]))
 ensure_dir(str(HISTORY_ROOT))
 
@@ -71,15 +72,43 @@ def _result_names(source_name: str):
     )
 
 
+def _save_image(path: Path, image: np.ndarray) -> bool:
+    suffix = path.suffix or ".png"
+    ok, encoded = cv2.imencode(suffix, image)
+    if not ok:
+        return False
+    try:
+        encoded.tofile(str(path))
+    except OSError:
+        return False
+    return path.exists()
+
+
 def _save_result(image_bgr: np.ndarray, mask: np.ndarray, overlay: np.ndarray, source_name: str):
     raw_name, mask_name, overlay_name = _result_names(source_name)
     raw_path = app.config["RESULT_DIR"] / raw_name
     mask_path = app.config["RESULT_DIR"] / mask_name
     overlay_path = app.config["RESULT_DIR"] / overlay_name
 
-    cv2.imwrite(str(raw_path), image_bgr)
-    cv2.imwrite(str(mask_path), mask)
-    cv2.imwrite(str(overlay_path), overlay)
+    raw_saved = _save_image(raw_path, image_bgr)
+    mask_saved = _save_image(mask_path, mask)
+    overlay_saved = _save_image(overlay_path, overlay)
+
+    app.logger.info(
+        "Save result | source=%s | raw=%s (%s) | mask=%s (%s) | overlay=%s (%s)",
+        source_name,
+        raw_path,
+        raw_saved,
+        mask_path,
+        mask_saved,
+        overlay_path,
+        overlay_saved,
+    )
+
+    if not (raw_saved and mask_saved and overlay_saved):
+        raise RuntimeError(
+            f"结果保存失败：raw={raw_saved}, mask={mask_saved}, overlay={overlay_saved}"
+        )
 
     record = build_history_record(
         item_id=uuid.uuid4().hex,
